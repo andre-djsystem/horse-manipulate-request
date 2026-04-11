@@ -160,18 +160,21 @@ begin
     after the process that de-serialize this info
     *)
     LRouteMatch := ExtractParamFromHorseRoute(Req.PathInfo);
-    try
-      if (LRouteMatch.Params.Count > 0) then
-      begin
-        for LKeySource in LRouteMatch.Params.Keys do
+    if Assigned(LRouteMatch.Params) then
+    begin
+      try
+        if (LRouteMatch.Params.Count > 0) then
         begin
-          if LKeySource.Trim.IsEmpty then
-            Continue;
-          Req.Params.Dictionary.AddOrSetValue(LKeySource, LRouteMatch.Params.Items[LKeySource]);
+          for LKeySource in LRouteMatch.Params.Keys do
+          begin
+            if LKeySource.Trim.IsEmpty then
+              Continue;
+            Req.Params.Dictionary.AddOrSetValue(LKeySource, LRouteMatch.Params.Items[LKeySource]);
+          end;
         end;
+      finally
+        LRouteMatch.Params.Free;
       end;
-    finally
-      LRouteMatch.Params.Free;
     end;
 {$ENDIF}
     ManipulateRequestCallBack(Req);
