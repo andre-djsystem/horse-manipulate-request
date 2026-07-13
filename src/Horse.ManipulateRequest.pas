@@ -18,6 +18,7 @@ uses
   Horse.Core.RouterTree,
   DataSet.Serialize,
   System.RegularExpressions,
+  System.Rtti,
   System.Generics.Collections,
 {$ENDIF}
 {$ENDIF}
@@ -51,6 +52,36 @@ var
   ManipulateRequestCallBack: THorseManipulateRequest;
 
 {$IFDEF EXTRACT_PARAM}
+// Since Horse PR #450 (radix rewrite), a route child registered as ':name' is
+// stored in Route under the generic key ':_param' (see THorseRouterTree.
+// NormalizeParamKey). The real param name only survives in the node's private
+// FTag field. Deriving the name from the dictionary key would yield '_param'.
+// This reads the node's FTag via RTTI, so we recover the true name ('hash')
+// without patching Horse core. Falls back to the key for old-style ':name'
+// nodes and for any build where the field isn't reachable.
+function ResolveParamName(ANode: THorseRouterTree; const AKey: string): string;
+var
+  LCtx: TRttiContext;
+  LType: TRttiType;
+  LField: TRttiField;
+begin
+  Result := '';
+  if Assigned(ANode) then
+  begin
+    LType := LCtx.GetType(ANode.ClassType);
+    if Assigned(LType) then
+    begin
+      LField := LType.GetField('FTag');
+      if Assigned(LField) then
+        Result := LField.GetValue(ANode).AsString;
+    end;
+  end;
+
+  // Fallback: old Horse stored the raw ':name' as the key.
+  if Result.Trim.IsEmpty then
+    Result := AKey.Substring(1);
+end;
+
 function ExtractParamFromHorseRoute(const APath: string): TRouteMatch;
 
   function WalkTree(
@@ -84,8 +115,9 @@ function ExtractParamFromHorseRoute(const APath: string): TRouteMatch;
       begin
         LNext := ANode.Route.Items[LKey];
 
-        // Get param name
-        LParamName := LKey.Substring(1);
+        // Get param name from the node itself (new Horse normalizes the key to
+        // ':_param'); fall back to the key for old-style ':name' nodes.
+        LParamName := ResolveParamName(LNext, LKey);
 
         // Save param value
         AParams.AddOrSetValue(LParamName, AParts[AIndex]);
@@ -124,7 +156,7 @@ function ExtractParamFromHorseRoute(const APath: string): TRouteMatch;
 begin
   Result.Params := TDictionary<string, string>.Create;
   Result.Node := WalkTree(
-    THorseCore.Routes,
+    THorseRouterTree(THorseCore.Routes),
     Normalize(APath).Split(['/']),
     0,
     Result.Params
